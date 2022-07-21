@@ -29,7 +29,7 @@ class PyGithub:
         self.API_REPO_root = 'https://api.github.com/repos'
         # root/{repo}/{sha}/{path2file}
         self.API_CODE_root = 'https://raw.githubusercontent.com'
-        self.API_KEY = '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'
+        self.API_KEY = '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'
         self.headers = {
             'Accept' : 'application/vnd.github+json',
             'Authorization': self.API_KEY
@@ -122,7 +122,12 @@ class PyGithub:
                     for item in r.json()['files']:
                         path2file = item['filename']
                         sufix = path2file.split('.')[-1]
-                        if sufix != 'cpp' and sufix != 'c':
+                        if sufix != 'cpp' and \
+                            sufix != 'cc' and \
+                            sufix != 'c++' and \
+                            sufix != 'cp' and \
+                            sufix != 'cxx' and \
+                            sufix != 'CPP':
                             continue
                         print(path2file)
                         commit_history4file_list = self.get_commit_history4file(repo, path2file)
