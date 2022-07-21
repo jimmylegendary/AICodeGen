@@ -3,6 +3,25 @@ import json
 from types import SimpleNamespace
 import time
 import os
+import wget
+
+def try_request(TARGET, headers):
+    tried = 0
+    r = None
+    print(TARGET)
+    DELAY = 10
+    time.sleep(DELAY)
+    while tried < 3:
+        try:
+            r = requests.get(TARGET,headers=headers)
+            if r.status_code == 200:
+                break
+            tried += 1
+        except:
+            tried+=1
+        print(f'{tried} times tried', f'wait {DELAY} seconds...')
+        time.sleep(DELAY)
+    return r
 
 class PyGithub:
     def __init__(self):
@@ -19,12 +38,12 @@ class PyGithub:
 
     def search_repo(self):
         SEARCH_REPOSITORY='search/repositories'
-        REPO_QUERY='q=C++&sort=stars&order=desc&per_page=100&page='
+        REPO_QUERY='q=language:C++&sort=stars&order=desc&per_page=100&page='
         TARGET=self.API_root+'/'+SEARCH_REPOSITORY+'?'+REPO_QUERY
         repo_list = []
         page_idx = 1
-        while(page_idx <= 3):
-            r = requests.get(f'{TARGET}{page_idx}',headers=self.headers)
+        while(page_idx <= 1):
+            r = try_request(f'{TARGET}{page_idx}',headers=self.headers)
             for content in r.json()['items']:
                 # self.repos.append(json.loads(content, object_hook=lambda d: SimpleNamespace(**d)))
                 repo_list.append(content['full_name'])
@@ -36,15 +55,19 @@ class PyGithub:
     def get_commit_history4file(self, repo, path2file):
         TARGET= self.API_REPO_root + '/'+ repo+'/commits?path='+path2file
         print(TARGET)
-        r = requests.get(TARGET,headers=self.headers)
+        r = try_request(TARGET,headers=self.headers)
         
         return r.json()
     
     def get_code_file(self, repo, sha, path2file):
         TARGET=self.API_CODE_root + '/' + repo + '/' + sha + '/' + path2file
-        r = requests.get(TARGET,headers=self.headers)
+        r = try_request(TARGET,headers=self.headers)
         
-        return r.json()
+        return r.content
+    
+    def save_code_file(self, repo, sha, path2file):
+        TARGET=self.API_CODE_root + '/' + repo + '/' + sha + '/' + path2file
+        wget.download(TARGET)
 
     def search_commits(self, repo, keyword):
         SEARCH_COMMIT='search/commits'
@@ -58,7 +81,7 @@ class PyGithub:
         page_idx = 1
         max_commit = 100
         while(count < max_commit):
-            r = requests.get(f'{TARGET}{page_idx}',headers=self.headers)
+            r = try_request(f'{TARGET}{page_idx}',headers=self.headers)
             if r.status_code != 200:
                 break
             if count == 0:
@@ -90,17 +113,21 @@ class PyGithub:
                 if is_ignore == True:
                     continue
 
-                if len(msg) < 100:
-                    print(f'commit{idx}', msg)
+                if len(msg) < 500:
+                    # print(f'commit{idx}', msg)
                     TARGET = self.API_REPO_root + '/' + repo + '/commits/' + commit_sha
-                    print(TARGET)
-                    r = requests.get(TARGET,headers=self.headers)
+                    r = try_request(TARGET,headers=self.headers)
+                    if r.status_code != 200:
+                        continue
                     for item in r.json()['files']:
                         path2file = item['filename']
+                        sufix = path2file.split('.')[-1]
+                        if sufix != 'cpp' and sufix != 'c':
+                            continue
                         print(path2file)
                         commit_history4file_list = self.get_commit_history4file(repo, path2file)
                         prev_file_idx = 0
-                        while True:
+                        while prev_file_idx < len(commit_history4file_list):
                             if commit_history4file_list[prev_file_idx]['sha'] == commit_sha:
                                 prev_file_idx += 1
                                 break
@@ -112,8 +139,12 @@ class PyGithub:
                         prev_code = self.get_code_file(repo, prev_commit_sha, path2file)
                         curr_code = self.get_code_file(repo, curr_commit_sha, path2file)
                         prj_dir = os.getcwd()
-                        os.write(prj_dir +'/old_'+path2file.split('/')[-1],prev_code)
-                        os.write(prj_dir +'/new'+path2file.split('/')[-1],curr_code)
+                        fd = os.open(prj_dir +'/old_'+path2file.split('/')[-1], os.O_RDWR|os.O_CREAT)
+                        os.write(fd,prev_code)
+                        os.close(fd)
+                        fd = os.open(prj_dir +'/new_'+path2file.split('/')[-1], os.O_RDWR|os.O_CREAT)
+                        os.write(fd,curr_code)
+                        os.close(fd)
                         print(f'{repo}/{path2file} is saved')
                         
                 idx += 1
@@ -137,9 +168,7 @@ while tried < 10:
 for repo in repo_list:
     try:
         keywords = [
-            'perf',
-            'reduce allocation',
-            'performance',
+            'perf'
         ]
         for keyword in keywords:
             pygithub.search_commits(repo, keyword)
