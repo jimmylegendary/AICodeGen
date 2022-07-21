@@ -38,7 +38,7 @@ class PyGithub:
 
     def search_repo(self):
         SEARCH_REPOSITORY='search/repositories'
-        REPO_QUERY='q=language:C++&sort=stars&order=desc&per_page=100&page='
+        REPO_QUERY='q=language:cpp&sort=stars&order=desc&per_page=100&page='
         TARGET=self.API_root+'/'+SEARCH_REPOSITORY+'?'+REPO_QUERY
         repo_list = []
         page_idx = 1
