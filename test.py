@@ -5,6 +5,7 @@ import time
 import os
 import wget
 
+API_count = 0
 def try_request(TARGET, headers):
     tried = 0
     r = None
@@ -15,6 +16,10 @@ def try_request(TARGET, headers):
         try:
             r = requests.get(TARGET,headers=headers)
             if r.status_code == 200:
+                global API_count
+                API_count += 1
+                print(f'API call count {API_count}')
+                # curl -I https://api.github.com/users/octocat -u jimmylegendary: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
                 break
             tried += 1
         except:
@@ -29,7 +34,8 @@ class PyGithub:
         self.API_REPO_root = 'https://api.github.com/repos'
         # root/{repo}/{sha}/{path2file}
         self.API_CODE_root = 'https://raw.githubusercontent.com'
-        self.API_KEY = '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'
+        # self.API_KEY = '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'
+        self.API_KEY = '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'
         self.headers = {
             'Accept' : 'application/vnd.github+json',
             'Authorization': self.API_KEY
