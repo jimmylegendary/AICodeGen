@@ -2,9 +2,9 @@ class CodeData:
     def __init__(self):
         self.link = ''
         self.raw_code = ''
-        
-        pass
 
 class CodeDatabase:
     def __init__(self):
-        pass
+        self.input_list : list[CodeData] = []
+        self.golden_list : list[CodeData] = []
+        self.pair_list : list[tuple[CodeData]] = []
