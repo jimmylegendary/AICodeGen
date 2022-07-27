@@ -1,9 +1,12 @@
 import requests
-import json
-from types import SimpleNamespace
 import time
 import os
 import wget
+from dotenv import load_dotenv
+from CodeDatabase import *
+
+load_dotenv()
+
 
 API_count = 0
 def try_request(TARGET, headers):
@@ -29,18 +32,20 @@ def try_request(TARGET, headers):
     return r
 
 class PyGithub:
+    # curl -H 'Authorization: token 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' https://api.github.com/rate_limit
     def __init__(self):
         self.API_root = 'http://api.github.com'
         self.API_REPO_root = 'https://api.github.com/repos'
         # root/{repo}/{sha}/{path2file}
         self.API_CODE_root = 'https://raw.githubusercontent.com'
         # self.API_KEY = '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'
-        self.API_KEY = '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'
+        self.API_KEY = os.environ.get('GITHUB_PAT')
         self.headers = {
             'Accept' : 'application/vnd.github+json',
             'Authorization': self.API_KEY
         }
         self.repos = []
+        self.code_database = CodeDatabase()
 
     def search_repo(self):
         SEARCH_REPOSITORY='search/repositories'
@@ -70,6 +75,11 @@ class PyGithub:
         r = try_request(TARGET,headers=self.headers)
         
         return r.content
+    
+    def get_code_link(self, repo, sha, path2file):
+        TARGET=self.API_CODE_root + '/' + repo + '/' + sha + '/' + path2file
+        
+        return TARGET
     
     def save_code_file(self, repo, sha, path2file):
         TARGET=self.API_CODE_root + '/' + repo + '/' + sha + '/' + path2file
@@ -147,16 +157,23 @@ class PyGithub:
                             prev_file_idx = len(commit_history4file_list) - 1
                         prev_commit_sha = commit_history4file_list[prev_file_idx]['sha']
                         curr_commit_sha = commit_sha
-                        prev_code = self.get_code_file(repo, prev_commit_sha, path2file)
-                        curr_code = self.get_code_file(repo, curr_commit_sha, path2file)
-                        prj_dir = os.getcwd()
-                        fd = os.open(prj_dir +'/old_'+path2file.split('/')[-1], os.O_RDWR|os.O_CREAT)
-                        os.write(fd,prev_code)
-                        os.close(fd)
-                        fd = os.open(prj_dir +'/new_'+path2file.split('/')[-1], os.O_RDWR|os.O_CREAT)
-                        os.write(fd,curr_code)
-                        os.close(fd)
-                        print(f'{repo}/{path2file} is saved')
+                        # prev_code = self.get_code_file(repo, prev_commit_sha, path2file)
+                        # curr_code = self.get_code_file(repo, curr_commit_sha, path2file)
+                        
+                        prev_code = self.get_code_link(repo, prev_commit_sha, path2file)
+                        curr_code = self.get_code_link(repo, curr_commit_sha, path2file)
+                        self.code_database.append(CodeData(prev_code, path2file),CodeData(curr_code, path2file))
+                        if len(self.code_database) >= 30:
+                            self.code_database.download()
+                            exit(0)
+                        # prj_dir = os.getcwd()
+                        # fd = os.open(prj_dir +'/old_'+path2file.split('/')[-1], os.O_RDWR|os.O_CREAT)
+                        # os.write(fd,prev_code)
+                        # os.close(fd)
+                        # fd = os.open(prj_dir +'/new_'+path2file.split('/')[-1], os.O_RDWR|os.O_CREAT)
+                        # os.write(fd,curr_code)
+                        # os.close(fd)
+                        # print(f'{repo}/{path2file} is saved')
                         
                 idx += 1
 
