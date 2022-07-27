@@ -1,0 +1,5 @@
+- tree-sitter
+- difftastic
+- wget
+- python-dotenv
+- requests
