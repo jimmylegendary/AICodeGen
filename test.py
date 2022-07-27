@@ -32,13 +32,12 @@ def try_request(TARGET, headers):
     return r
 
 class PyGithub:
-    # curl -H 'Authorization: token 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' https://api.github.com/rate_limit
+    # curl -H 'Authorization: token {PAT}' https://api.github.com/rate_limit
     def __init__(self):
         self.API_root = 'http://api.github.com'
         self.API_REPO_root = 'https://api.github.com/repos'
         # root/{repo}/{sha}/{path2file}
         self.API_CODE_root = 'https://raw.githubusercontent.com'
-        # self.API_KEY = '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'
         self.API_KEY = os.environ.get('GITHUB_PAT')
         self.headers = {
             'Accept' : 'application/vnd.github+json',
