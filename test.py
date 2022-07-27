@@ -4,16 +4,18 @@ import os
 import wget
 from dotenv import load_dotenv
 from CodeDatabase import *
+import subprocess
 
 load_dotenv()
 
 
 API_count = 0
+API_KEY = os.environ.get('GITHUB_PAT')
 def try_request(TARGET, headers):
     tried = 0
     r = None
     print(TARGET)
-    DELAY = 10
+    DELAY = 1
     time.sleep(DELAY)
     while tried < 3:
         try:
@@ -22,13 +24,22 @@ def try_request(TARGET, headers):
                 global API_count
                 API_count += 1
                 print(f'API call count {API_count}')
-                # curl -I https://api.github.com/users/octocat -u jimmylegendary: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
+                # curl -I https://api.github.com/users/octocat -u jimmylegendary:{PAT}
                 break
             tried += 1
         except:
             tried+=1
-        print(f'{tried} times tried', f'wait {DELAY} seconds...')
+        # print(f'{tried} times tried', f'wait {DELAY} seconds...')
+        print(TARGET,headers)
         time.sleep(DELAY)
+    
+    if tried == 3:
+        cmd = ['curl','-s', f'https://{API_KEY}@{TARGET[8:]}']
+        print(cmd)
+        r = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output, error = r.communicate()
+        r = output
+
     return r
 
 class PyGithub:
