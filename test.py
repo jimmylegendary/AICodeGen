@@ -11,13 +11,26 @@ load_dotenv()
 
 API_count = 0
 API_KEY = os.environ.get('GITHUB_PAT')
+
+def try_curl(TARGET):
+    cmd = ['curl','-s', f'https://{API_KEY}@{TARGET[8:]}']
+    # print(cmd)
+    r = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output, error = r.communicate()
+    assert output != '' and output != None, f'Request fail for {TARGET}'
+    r = requests.Response()
+    r._content = output
+    r.status_code = 200
+    
+    return r
+
 def try_request(TARGET, headers):
     tried = 0
     r = None
-    print(TARGET)
-    DELAY = 1
+    # print(TARGET)
+    DELAY = 0.01
     time.sleep(DELAY)
-    while tried < 3:
+    while tried < 1:
         try:
             r = requests.get(TARGET,headers=headers)
             if r.status_code == 200:
@@ -30,15 +43,11 @@ def try_request(TARGET, headers):
         except:
             tried+=1
         # print(f'{tried} times tried', f'wait {DELAY} seconds...')
-        print(TARGET,headers)
-        time.sleep(DELAY)
+        # print(TARGET,headers)
+        # time.sleep(DELAY)
     
-    if tried == 3:
-        cmd = ['curl','-s', f'https://{API_KEY}@{TARGET[8:]}']
-        print(cmd)
-        r = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output, error = r.communicate()
-        r = output
+    if tried == 1:
+        r = try_curl(TARGET)
 
     return r
 
@@ -75,7 +84,6 @@ class PyGithub:
     
     def get_commit_history4file(self, repo, path2file):
         TARGET= self.API_REPO_root + '/'+ repo+'/commits?path='+path2file
-        print(TARGET)
         r = try_request(TARGET,headers=self.headers)
         
         return r.json()
@@ -118,7 +126,8 @@ class PyGithub:
                 
             idx = 1
             start = False
-            for content in r.json()['items']:
+            rjson = r.json()
+            for content in rjson['items']:
                 msg = content['commit']['message']
                 commit_sha = content['sha']
                 # flag = False
@@ -155,7 +164,7 @@ class PyGithub:
                             sufix != 'cxx' and \
                             sufix != 'CPP':
                             continue
-                        print(path2file)
+                        # print(path2file)
                         commit_history4file_list = self.get_commit_history4file(repo, path2file)
                         prev_file_idx = 0
                         while prev_file_idx < len(commit_history4file_list):
@@ -172,8 +181,11 @@ class PyGithub:
                         
                         prev_code = self.get_code_link(repo, prev_commit_sha, path2file)
                         curr_code = self.get_code_link(repo, curr_commit_sha, path2file)
-                        self.code_database.append(CodeData(prev_code, path2file),CodeData(curr_code, path2file))
-                        if len(self.code_database) >= 30:
+                        self.code_database.append(
+                            CodeData(prev_code, path2file, prev_commit_sha),
+                            CodeData(curr_code, path2file, curr_commit_sha)
+                            )
+                        if len(self.code_database.pair_list) >= 10:
                             self.code_database.download()
                             exit(0)
                         # prj_dir = os.getcwd()
@@ -189,7 +201,7 @@ class PyGithub:
 
             if start == True:
                 print(f'END {repo}\n')
-            count += len(r.json()['items'])
+            count += rjson['total_count']
             page_idx += 1
 
 pygithub = PyGithub()
@@ -204,12 +216,17 @@ while tried < 10:
         time.sleep(5)
 
 for repo in repo_list:
-    try:
-        keywords = [
+    keywords = [
             'perf'
         ]
-        for keyword in keywords:
-            pygithub.search_commits(repo, keyword)
-    except:
-        # print(f'{repo} has no commits')
-        pass
+    for keyword in keywords:
+        pygithub.search_commits(repo, keyword)
+    # try:
+    #     keywords = [
+    #         'perf'
+    #     ]
+    #     for keyword in keywords:
+    #         pygithub.search_commits(repo, keyword)
+    # except:
+    #     exit(0)
+    #     assert False, 'Program Termination'
