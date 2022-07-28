@@ -6,11 +6,26 @@ from dotenv import load_dotenv
 from CodeDatabase import *
 import subprocess
 
+import urllib.request
+
 load_dotenv()
 
 
 API_count = 0
 API_KEY = os.environ.get('GITHUB_PAT')
+limit = 4999
+
+def get_ramaining_api_call():
+    cmd = ['curl','-H', f'Authorization: token {API_KEY}', 'https://api.github.com/rate_limit']
+    r = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output, error = r.communicate()
+    r = requests.Response()
+    r._content = output
+    r.status_code = 200
+    
+    remaining_call = r.json()['rate']['remaining']
+    
+    return remaining_call
 
 def try_curl(TARGET):
     cmd = ['curl','-s', f'https://{API_KEY}@{TARGET[8:]}']
@@ -22,33 +37,62 @@ def try_curl(TARGET):
     r._content = output
     r.status_code = 200
     
+    global API_count
+    API_count += 1
+    
     return r
 
 def try_request(TARGET, headers):
+    global API_count, limit
+        
+    if API_count >= limit:
+        cmd = ['curl','-H', f'Authorization: token {API_KEY}', 'https://api.github.com/rate_limit']
+        r = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+        output, error = r.communicate()
+        r = requests.Response()
+        r._content = output
+        r.status_code = 200
+        
+        reset_timestamp = r.json()['rate']['reset']
+        delay = reset_timestamp - time.time()
+        print(f'wait {delay} seconds...')
+        time.sleep(delay+1)
+        limit = get_ramaining_api_call()
+    
     tried = 0
     r = None
     # print(TARGET)
     DELAY = 0.01
-    time.sleep(DELAY)
-    while tried < 1:
+    # time.sleep(DELAY)
+    while tried < 3:
         try:
             r = requests.get(TARGET,headers=headers)
+            API_count += 1
+            print(f'API call count {API_count}', r.status_code)
             if r.status_code == 200:
-                global API_count
-                API_count += 1
-                print(f'API call count {API_count}')
                 # curl -I https://api.github.com/users/octocat -u jimmylegendary:{PAT}
+                if 'json' not in r.headers.get('content-type'):
+                    print(r.headers.get('content-type'), TARGET)
                 break
+            else:
+                print(TARGET,headers)
+                print(r.content.decode())
+                assert False
             tried += 1
         except:
+            assert False, r.status_code
             tried+=1
-        # print(f'{tried} times tried', f'wait {DELAY} seconds...')
-        # print(TARGET,headers)
-        # time.sleep(DELAY)
+        print(f'{tried} times tried', f'wait {DELAY} seconds...')
+        print(TARGET,headers)
+        time.sleep(DELAY)
     
-    if tried == 1:
-        r = try_curl(TARGET)
-
+    # if tried == 1:
+    #     r = try_curl(TARGET)
+    #     API_count += 1
+    #     print(f'API call count {API_count}')
+    #     print(r.headers.get('content-type'), TARGET)
+    #     # if 'json' not in r.headers.get('content-type'):
+            # print(r.headers.get('content-type'), TARGET)
     return r
 
 class PyGithub:
@@ -61,7 +105,7 @@ class PyGithub:
         self.API_KEY = os.environ.get('GITHUB_PAT')
         self.headers = {
             'Accept' : 'application/vnd.github+json',
-            'Authorization': self.API_KEY
+            'Authorization': f'token {self.API_KEY}'
         }
         self.repos = []
         self.code_database = CodeDatabase()
@@ -86,6 +130,9 @@ class PyGithub:
         TARGET= self.API_REPO_root + '/'+ repo+'/commits?path='+path2file
         r = try_request(TARGET,headers=self.headers)
         
+        if len(r.json()) == 0:
+            print('commit_history4file_list size is 0 for ', TARGET)
+        
         return r.json()
     
     def get_code_file(self, repo, sha, path2file):
@@ -96,12 +143,14 @@ class PyGithub:
     
     def get_code_link(self, repo, sha, path2file):
         TARGET=self.API_CODE_root + '/' + repo + '/' + sha + '/' + path2file
+        try:
+            res = urllib.request.urlopen(TARGET)
+            if res.status != 200:
+                TARGET = ''
+        except:
+            TARGET = ''
         
         return TARGET
-    
-    def save_code_file(self, repo, sha, path2file):
-        TARGET=self.API_CODE_root + '/' + repo + '/' + sha + '/' + path2file
-        wget.download(TARGET)
 
     def search_commits(self, repo, keyword):
         SEARCH_COMMIT='search/commits'
@@ -116,7 +165,9 @@ class PyGithub:
         max_commit = 100
         while(count < max_commit):
             r = try_request(f'{TARGET}{page_idx}',headers=self.headers)
-            if r.status_code != 200:
+            if r == None:
+                break
+            if (r.status_code != 200) or ('json' not in r.headers.get('content-type')) :
                 break
             if count == 0:
                 max_commit = min(r.json()['total_count'],500)
@@ -167,6 +218,9 @@ class PyGithub:
                         # print(path2file)
                         commit_history4file_list = self.get_commit_history4file(repo, path2file)
                         prev_file_idx = 0
+                        if len(commit_history4file_list) == 0:
+                            continue
+                            
                         while prev_file_idx < len(commit_history4file_list):
                             if commit_history4file_list[prev_file_idx]['sha'] == commit_sha:
                                 prev_file_idx += 1
@@ -181,21 +235,13 @@ class PyGithub:
                         
                         prev_code = self.get_code_link(repo, prev_commit_sha, path2file)
                         curr_code = self.get_code_link(repo, curr_commit_sha, path2file)
-                        self.code_database.append(
-                            CodeData(prev_code, path2file, prev_commit_sha),
-                            CodeData(curr_code, path2file, curr_commit_sha)
-                            )
-                        if len(self.code_database.pair_list) >= 10:
-                            self.code_database.download()
-                            exit(0)
-                        # prj_dir = os.getcwd()
-                        # fd = os.open(prj_dir +'/old_'+path2file.split('/')[-1], os.O_RDWR|os.O_CREAT)
-                        # os.write(fd,prev_code)
-                        # os.close(fd)
-                        # fd = os.open(prj_dir +'/new_'+path2file.split('/')[-1], os.O_RDWR|os.O_CREAT)
-                        # os.write(fd,curr_code)
-                        # os.close(fd)
-                        # print(f'{repo}/{path2file} is saved')
+                        if prev_code != '' and curr_code != '':
+                            self.code_database.append(
+                                CodeData(prev_code, path2file, prev_commit_sha),
+                                CodeData(curr_code, path2file, curr_commit_sha)
+                                )
+                        # if len(self.code_database.pair_list) >= 100:
+                            # self.code_database.download()
                         
                 idx += 1
 
@@ -205,28 +251,13 @@ class PyGithub:
             page_idx += 1
 
 pygithub = PyGithub()
-tried = 0
-while tried < 10:
-    try:
-        repo_list = pygithub.search_repo()
-        break
-    except:
-        tried+=1
-        print(f'{tried} times tried', 'wait 5 seconds...')
-        time.sleep(5)
-
+repo_list = pygithub.search_repo()
+limit = get_ramaining_api_call()
 for repo in repo_list:
     keywords = [
             'perf'
         ]
     for keyword in keywords:
         pygithub.search_commits(repo, keyword)
-    # try:
-    #     keywords = [
-    #         'perf'
-    #     ]
-    #     for keyword in keywords:
-    #         pygithub.search_commits(repo, keyword)
-    # except:
-    #     exit(0)
-    #     assert False, 'Program Termination'
+
+pygithub.code_database.download()
