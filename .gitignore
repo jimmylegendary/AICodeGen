@@ -130,5 +130,10 @@ dmypy.json
 
 
 # Custom
-# ENV file
-.env
+# vscode
+.vscode/
+
+# Data
+pair_data/
+*.cc
+*.cpp

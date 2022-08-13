@@ -9,8 +9,9 @@
 - [ ] tree-sitter분석 내용에 따라 함수단위 code, statement code 추출
 - [ ] difft code diff
 - [ ] Code Data 구조 작성
-    - [ ] 기존 code dataset 구조 조사
-    - [ ] data attribute 작성
+    - [X] 기존 code dataset 구조 조사
+    - [X] data attribute 작성
+    - [ ] Database function 작성
 
 
 # Issues
