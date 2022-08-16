@@ -3,3 +3,5 @@
 - wget
 - python-dotenv
 - requests
+- transformers
+- pytorch
