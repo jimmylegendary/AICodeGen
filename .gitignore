@@ -135,5 +135,12 @@ dmypy.json
 
 # Data
 pair_data/
+func_data/
+*.jsonl
+
+# source code
 *.cc
 *.cpp
+
+# build
+build/

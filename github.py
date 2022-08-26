@@ -13,7 +13,6 @@ load_dotenv()
 
 API_count = 0
 API_KEY = os.environ.get('GITHUB_PAT')
-limit = 4999
 
 def get_ramaining_api_call():
     cmd = ['curl','-H', f'Authorization: token {API_KEY}', 'https://api.github.com/rate_limit']
@@ -22,11 +21,11 @@ def get_ramaining_api_call():
     r = requests.Response()
     r._content = output
     r.status_code = 200
-    
     remaining_call = r.json()['rate']['remaining']
     
     return remaining_call
 
+limit = get_ramaining_api_call()
 def try_curl(TARGET):
     cmd = ['curl','-s', f'https://{API_KEY}@{TARGET[8:]}']
     # print(cmd)
@@ -41,30 +40,46 @@ def try_curl(TARGET):
     API_count += 1
     
     return r
+def wait_github_api_limit():
+    global API_count, limit
+    print(f'API_count : {API_count}, limit : {limit}')
+    if API_count < limit:
+        assert False, f'API_count : {API_count} is under limit : {limit}'
+        
+    cmd = ['curl','-H', f'Authorization: token {API_KEY}', 'https://api.github.com/rate_limit']
+    # print(' '.join(cmd))
+    r = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
+    output, error = r.communicate()
+    r = requests.Response()
+    r._content = output
+    r.status_code = 200
+    
+    reset_timestamp = r.json()['rate']['reset']
+    delay = reset_timestamp - time.time()
+    print(f'wait {delay} seconds...')
+    time.sleep(delay+1)
+    limit = get_ramaining_api_call()
+    API_count = 0
 
+search_count = 0
 def try_request(TARGET, headers):
     global API_count, limit
-        
+    global search_count
+
+    if 'search' in TARGET:
+        search_count += 1
+        print(f'search_count : {search_count}')
+        print(f'TARGET: {TARGET}')
     if API_count >= limit:
-        cmd = ['curl','-H', f'Authorization: token {API_KEY}', 'https://api.github.com/rate_limit']
-        r = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-        output, error = r.communicate()
-        r = requests.Response()
-        r._content = output
-        r.status_code = 200
-        
-        reset_timestamp = r.json()['rate']['reset']
-        delay = reset_timestamp - time.time()
-        print(f'wait {delay} seconds...')
-        time.sleep(delay+1)
-        limit = get_ramaining_api_call()
+        print(TARGET)
+        wait_github_api_limit()
     
     tried = 0
     r = None
     # print(TARGET)
     DELAY = 0.01
     # time.sleep(DELAY)
-    while tried < 3:
+    while tried < 1:
         try:
             r = requests.get(TARGET,headers=headers)
             API_count += 1
@@ -75,11 +90,18 @@ def try_request(TARGET, headers):
                     print(r.headers.get('content-type'), TARGET)
                 break
             else:
-                print(TARGET,headers)
-                print(r.content.decode())
-                assert False
+                # print(TARGET,headers)
+                # print(r.json())
+                if 'API rate limit exceeded' in r.json()['message']:
+                    print(TARGET)
+                    tried += 1
+                    continue
+                    wait_github_api_limit()
+                else:
+                    assert False
             tried += 1
         except:
+            print(get_ramaining_api_call())
             assert False, r.status_code
             tried+=1
         print(f'{tried} times tried', f'wait {DELAY} seconds...')
@@ -95,6 +117,28 @@ def try_request(TARGET, headers):
             # print(r.headers.get('content-type'), TARGET)
     return r
 
+class SegQuery:
+    def __init__(self, start, end, step):
+        self.start = start
+        self.end = end
+        self.step = step
+        
+    def get_query(self, prefix, sufix):
+        query = prefix
+        if self.end == -1:
+            query += f'>={self.start}'
+            query += sufix
+            return query
+        else:
+            for i in range(self.start, self.end, self.step):
+                query = prefix
+                range_start = i
+                range_end = range_start + self.step
+                query += f'{range_start}..{range_end}'
+                query += sufix
+                
+                yield query
+
 class PyGithub:
     # curl -H 'Authorization: token {PAT}' https://api.github.com/rate_limit
     def __init__(self):
@@ -109,20 +153,46 @@ class PyGithub:
         }
         self.repos = []
         self.code_database = CodeDatabase()
+        self.seg_query_by_keword = {
+            'q=language:cpp+stars:': [
+                # SegQuery(100,1000,5),
+                SegQuery(1000,10000,1000),
+                SegQuery(10000,-1,-1),
+            ]
+        }
 
     def search_repo(self):
         SEARCH_REPOSITORY='search/repositories'
-        REPO_QUERY='q=language:cpp&sort=stars&order=desc&per_page=100&page='
+        REPO_QUERY='q=language:cpp+stars:>=10000&sort=stars&order=desc&per_page=100&page='
         TARGET=self.API_root+'/'+SEARCH_REPOSITORY+'?'+REPO_QUERY
         repo_list = []
-        page_idx = 1
-        while(page_idx <= 1):
-            r = try_request(f'{TARGET}{page_idx}',headers=self.headers)
-            for content in r.json()['items']:
-                # self.repos.append(json.loads(content, object_hook=lambda d: SimpleNamespace(**d)))
-                repo_list.append(content['full_name'])
-                # print(content['clone_url'])
-            page_idx += 1
+        keyword = 'q=language:cpp+stars:'
+        sufix = '&sort=stars&order=desc&per_page=100&page='
+        seq_query_list = []
+        for seq_query in self.seg_query_by_keword[keyword]:
+            queries = seq_query.get_query(keyword, sufix)
+            for query in queries:
+                seq_query_list.append(query)
+        
+        repo_count = 0
+        for query in seq_query_list:
+            page_idx = 1
+            TARGET=self.API_root+'/'+SEARCH_REPOSITORY+'?'+ query
+            max_page = 10
+            while(page_idx <= max_page):
+                r = try_request(f'{TARGET}{page_idx}',headers=self.headers)
+                if page_idx == 1:
+                    max_page = int(r.json()['total_count'])
+                    max_page = max_page // 100 if max_page % 100 == 0 else (max_page // 100) + 1
+                    max_page = min(max_page, 10)
+                for content in r.json()['items']:
+                    # self.repos.append(json.loads(content, object_hook=lambda d: SimpleNamespace(**d)))
+                    repo_list.append(content['full_name'])
+                    repo_count += 1
+                    # print(content['clone_url'])
+                    if repo_count >= 20:
+                        return repo_list
+                page_idx += 1
 
         return repo_list
     
@@ -208,6 +278,7 @@ class PyGithub:
                     for item in r.json()['files']:
                         path2file = item['filename']
                         sufix = path2file.split('.')[-1]
+                        # if sufix != 'c':
                         if sufix != 'cpp' and \
                             sufix != 'cc' and \
                             sufix != 'c++' and \
@@ -216,6 +287,8 @@ class PyGithub:
                             sufix != 'CPP':
                             continue
                         # print(path2file)
+                        patch = item['patch'] if 'patch' in item else ''
+                        if patch == '': continue
                         commit_history4file_list = self.get_commit_history4file(repo, path2file)
                         prev_file_idx = 0
                         if len(commit_history4file_list) == 0:
@@ -237,8 +310,8 @@ class PyGithub:
                         curr_code = self.get_code_link(repo, curr_commit_sha, path2file)
                         if prev_code != '' and curr_code != '':
                             self.code_database.append(
-                                CodeData(prev_code, path2file, prev_commit_sha),
-                                CodeData(curr_code, path2file, curr_commit_sha)
+                                CodeData(prev_code, path2file, prev_commit_sha, patch),
+                                CodeData(curr_code, path2file, curr_commit_sha, patch)
                                 )
                         # if len(self.code_database.pair_list) >= 100:
                             # self.code_database.download()
@@ -252,7 +325,6 @@ class PyGithub:
 
 pygithub = PyGithub()
 repo_list = pygithub.search_repo()
-limit = get_ramaining_api_call()
 for repo in repo_list:
     keywords = [
             'perf'
