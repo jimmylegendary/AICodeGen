@@ -1,12 +1,43 @@
 import os
+import json
 
-patch_file_list = []
-patch_data_list = []
-def get_patch_dict(filename):
+class CodeReviewDataManager:
+    def __init__(self, path):
+        self.data_list : list[CodeReviewData] = []
+        self.root_path = path
+        
+    def save(self):
+        data_dict : list[dict] = []
+        for data in self.data_list:
+            dd = dict()
+            dd['old'] = data.old
+            dd['new'] = data.new
+            dd['comment'] = data.comment
+            data_dict.append(dd)
+            
+        path = self.root_path + 'mydata.jsonl'
+        with open(path , encoding= "utf-8",mode="w") as file: 
+	        for i in data_dict: file.write(json.dumps(i) + "\n")
+
+class CodeReviewData:
+    def __init__(self, old='', new='', msg=''):
+        self.old = old
+        self.new = new
+        self.comment = msg
+
+data_manager = CodeReviewDataManager(path='./')
+
+def get_patch_dict(patch_filename, msg_filename):
     # file = open(filename,'rt', encoding='UTF-8')
     # tree = parser.parse(bytes(file.read(),"utf8"))
     # file = open(filename,'rt')
-    with open(filename,'r') as f:
+    
+    msg = ''
+    with open(msg_filename,'r') as f:
+        msg = f.read()
+        f.close()
+    
+    with open(patch_filename,'r') as f:
         count = 0
         lines = f.readlines()
         lines = [line for raw_line in lines for line in raw_line.split('\n')]
@@ -21,34 +52,41 @@ def get_patch_dict(filename):
                     if lines[idx].startswith('@@'):
                         idx -= 1
                         break
+                    lines[idx] = lines[idx] + '\n'
                     if lines[idx][0] == '-':
                         old_patch_str += lines[idx]
-                    if lines[idx][0] == '+':
+                    elif lines[idx][0] == '+':
                         new_patch_str += lines[idx]
                     else:
-                        print(lines[idx][0])
                         old_patch_str += lines[idx]
                         new_patch_str += lines[idx]
-                    old_patch_str += '\n'
-                    new_patch_str += '\n'
-                patch_data_list.append((old_patch_str, new_patch_str))
+                data_manager.data_list.append(CodeReviewData(
+                    old=old_patch_str, 
+                    new=new_patch_str,
+                    msg=msg
+                    )
+                )
 
 root_dirt = 'pair_data'
-for i in range(34):
+for i in range(45):
     root_dir = 'pair_data/' + str(i)
     for (root, dirs, files) in os.walk(root_dir):
-        if len(files) > 0:
+        if len(files) > 0 and 'patch' in files and 'msg' in files:
             for file_name in files:
                 if file_name == 'patch':
-                    patch_file_list.append(root + '/' + file_name)
-
-for file in patch_file_list:
-    get_patch_dict(file)
-
-for i, data in enumerate(patch_data_list):
-    print(f'### {i}')
-    print('old')
-    print(data[0])
-    print('new')
-    print(data[1])
-    print()
+                    patch_file = f'{root}/{file_name}'
+                elif file_name == 'msg':
+                    msg_file = f'{root}/{file_name}'
+            get_patch_dict(patch_file, msg_file)
+        
+# for i, data in enumerate(data_manager.data_list):
+#     print(f'### {i}')
+#     print('old')
+#     print(data.old)
+#     print('new')
+#     print(data.new)
+#     print()
+#     print('comment')
+#     print(data.comment)
+    
+data_manager.save()

@@ -14,6 +14,10 @@ load_dotenv()
 API_count = 0
 API_KEY = os.environ.get('GITHUB_PAT')
 
+perf_keywords = [
+            'perf'
+        ]
+
 def get_ramaining_api_call():
     cmd = ['curl','-H', f'Authorization: token {API_KEY}', 'https://api.github.com/rate_limit']
     r = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
@@ -107,14 +111,6 @@ def try_request(TARGET, headers):
         print(f'{tried} times tried', f'wait {DELAY} seconds...')
         print(TARGET,headers)
         time.sleep(DELAY)
-    
-    # if tried == 1:
-    #     r = try_curl(TARGET)
-    #     API_count += 1
-    #     print(f'API call count {API_count}')
-    #     print(r.headers.get('content-type'), TARGET)
-    #     # if 'json' not in r.headers.get('content-type'):
-            # print(r.headers.get('content-type'), TARGET)
     return r
 
 class SegQuery:
@@ -155,7 +151,7 @@ class PyGithub:
         self.code_database = CodeDatabase()
         self.seg_query_by_keword = {
             'q=language:cpp+stars:': [
-                # SegQuery(100,1000,5),
+                SegQuery(100,1000,5),
                 SegQuery(1000,10000,1000),
                 SegQuery(10000,-1,-1),
             ]
@@ -288,7 +284,6 @@ class PyGithub:
                             continue
                         # print(path2file)
                         patch = item['patch'] if 'patch' in item else ''
-                        if patch == '': continue
                         commit_history4file_list = self.get_commit_history4file(repo, path2file)
                         prev_file_idx = 0
                         if len(commit_history4file_list) == 0:
@@ -308,13 +303,16 @@ class PyGithub:
                         
                         prev_code = self.get_code_link(repo, prev_commit_sha, path2file)
                         curr_code = self.get_code_link(repo, curr_commit_sha, path2file)
-                        if prev_code != '' and curr_code != '':
-                            self.code_database.append(
-                                CodeData(prev_code, path2file, prev_commit_sha, patch),
-                                CodeData(curr_code, path2file, curr_commit_sha, patch)
-                                )
-                        # if len(self.code_database.pair_list) >= 100:
-                            # self.code_database.download()
+                        if prev_code != '' and curr_code != '' and patch != '' and msg != '':
+                            # self.code_database.append(
+                            #     CodeData(prev_code, path2file, prev_commit_sha, patch, msg),
+                            #     CodeData(curr_code, path2file, curr_commit_sha, patch, msg)
+                            #     )
+                            input = CodeData(prev_code, path2file, prev_commit_sha)
+                            golden = CodeData(curr_code, path2file, curr_commit_sha)
+                            self.code_database.append_review_data(
+                                ReviewData(input, golden, patch, msg)
+                                )                            
                         
                 idx += 1
 
@@ -326,10 +324,7 @@ class PyGithub:
 pygithub = PyGithub()
 repo_list = pygithub.search_repo()
 for repo in repo_list:
-    keywords = [
-            'perf'
-        ]
-    for keyword in keywords:
+    for keyword in perf_keywords:
         pygithub.search_commits(repo, keyword)
 
-pygithub.code_database.download()
+pygithub.code_database.download_review_data()
