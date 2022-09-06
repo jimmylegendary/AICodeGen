@@ -3,8 +3,9 @@ import time
 import os
 import wget
 from dotenv import load_dotenv
-from CodeDatabase import *
+# from CodeDatabase import *
 import subprocess
+from util import *
 
 import urllib.request
 
@@ -83,7 +84,7 @@ def try_request(TARGET, headers):
     # print(TARGET)
     DELAY = 0.01
     # time.sleep(DELAY)
-    while tried < 1:
+    while tried < 3:
         try:
             r = requests.get(TARGET,headers=headers)
             API_count += 1
@@ -96,16 +97,15 @@ def try_request(TARGET, headers):
             else:
                 # print(TARGET,headers)
                 # print(r.json())
-                if 'API rate limit exceeded' in r.json()['message']:
+                json_data = r.json()
+                if 'message' in json_data and 'API rate limit exceeded' in json_data['message']:
                     print(TARGET)
                     tried += 1
                     continue
-                    wait_github_api_limit()
-                else:
-                    assert False
+                    # wait_github_api_limit()
             tried += 1
         except:
-            print(get_ramaining_api_call())
+            # print(get_ramaining_api_call())
             assert False, r.status_code
             tried+=1
         print(f'{tried} times tried', f'wait {DELAY} seconds...')
@@ -121,7 +121,7 @@ class SegQuery:
         
     def get_query(self, prefix, sufix):
         query = prefix
-        if self.end == -1:
+        if self.step == -1:
             query += f'>={self.start}'
             query += sufix
             return query
@@ -148,12 +148,13 @@ class PyGithub:
             'Authorization': f'token {self.API_KEY}'
         }
         self.repos = []
-        self.code_database = CodeDatabase()
+        # self.code_database = CodeDatabase()
+        self.json_data = JsonData()
         self.seg_query_by_keword = {
             'q=language:cpp+stars:': [
                 SegQuery(100,1000,5),
                 SegQuery(1000,10000,1000),
-                SegQuery(10000,-1,-1),
+                SegQuery(10000,10001,-1),
             ]
         }
 
@@ -161,7 +162,7 @@ class PyGithub:
         SEARCH_REPOSITORY='search/repositories'
         REPO_QUERY='q=language:cpp+stars:>=10000&sort=stars&order=desc&per_page=100&page='
         TARGET=self.API_root+'/'+SEARCH_REPOSITORY+'?'+REPO_QUERY
-        repo_list = []
+        repo_list : list[RepoData] = []
         keyword = 'q=language:cpp+stars:'
         sufix = '&sort=stars&order=desc&per_page=100&page='
         seq_query_list = []
@@ -171,25 +172,45 @@ class PyGithub:
                 seq_query_list.append(query)
         
         repo_count = 0
-        for query in seq_query_list:
-            page_idx = 1
-            TARGET=self.API_root+'/'+SEARCH_REPOSITORY+'?'+ query
-            max_page = 10
-            while(page_idx <= max_page):
-                r = try_request(f'{TARGET}{page_idx}',headers=self.headers)
-                if page_idx == 1:
-                    max_page = int(r.json()['total_count'])
-                    max_page = max_page // 100 if max_page % 100 == 0 else (max_page // 100) + 1
-                    max_page = min(max_page, 10)
-                for content in r.json()['items']:
-                    # self.repos.append(json.loads(content, object_hook=lambda d: SimpleNamespace(**d)))
-                    repo_list.append(content['full_name'])
-                    repo_count += 1
-                    # print(content['clone_url'])
-                    if repo_count >= 20:
-                        return repo_list
-                page_idx += 1
-
+        seq_query_list = self.seg_query_by_keword[keyword]
+        for seg_query in seq_query_list:
+            start, end, step = seg_query.start, seg_query.end, seg_query.step
+            range_start = start
+            range_end = range_start + step
+            while range_end <= end:
+                if step == -1:
+                    query = keyword + f'>={range_start}' + sufix
+                else:
+                    query = keyword + f'{range_start}..{range_end}' + sufix
+                page_idx = 1
+                TARGET=self.API_root+'/'+SEARCH_REPOSITORY+'?'+ query
+                max_page = 10
+                while(page_idx <= max_page):
+                    r = try_request(f'{TARGET}{page_idx}',headers=self.headers)
+                    json_data = r.json()
+                    if page_idx == 1:
+                        max_page = int(json_data['total_count']) if 'total_count' in json_data else 0
+                        max_page = max_page // 100 if max_page % 100 == 0 else (max_page // 100) + 1
+                        max_page = min(max_page, 10)
+                        print('max_page', max_page)
+                    if page_idx > max_page: break
+                    for content in r.json()['items']:
+                        # self.repos.append(json.loads(content, object_hook=lambda d: SimpleNamespace(**d)))
+                        repo_list.append(RepoData(content['full_name']))
+                        repo_count += 1
+                        # print(content['clone_url'])
+                        # if repo_count >= 20:
+                        #     return repo_list
+                    page_idx += 1
+                
+                if step == -1:
+                    break
+                
+                if max_page <= 5:
+                    step *= 2
+                range_start = range_end
+                range_end = min(range_start + step, end)
+                if range_start == range_end: break
         return repo_list
     
     def get_commit_history4file(self, repo, path2file):
@@ -218,9 +239,10 @@ class PyGithub:
         
         return TARGET
 
-    def search_commits(self, repo, keyword):
+    def search_commits(self, repo_name, keyword):
+        commit_data_list : list[CommitData] = []
         SEARCH_COMMIT='search/commits'
-        COMMIT_QUERY=f'q=repo:{repo}+{keyword}'
+        COMMIT_QUERY=f'q=repo:{repo_name}+{keyword}'
         OPTIONS='&sort=committer-date&order=desc&per_page=100&page='
         TARGET=self.API_root+'/'+SEARCH_COMMIT+'?'+COMMIT_QUERY+OPTIONS
         
@@ -239,7 +261,7 @@ class PyGithub:
                 max_commit = min(r.json()['total_count'],500)
                 if max_commit == 0:
                     break
-                print(f'{repo} has', r.json()['total_count'], 'commits')
+                print(f'{repo_name} has', r.json()['total_count'], 'commits')
                 
             idx = 1
             start = False
@@ -255,7 +277,7 @@ class PyGithub:
 
                 if idx == 1:
                     start = True
-                    print(f'START {repo}')
+                    print(f'START {repo_name}')
                     
                 is_ignore = False
                 for ig_keyword in ignore_keywords:
@@ -267,7 +289,7 @@ class PyGithub:
 
                 if len(msg) < 500:
                     # print(f'commit{idx}', msg)
-                    TARGET = self.API_REPO_root + '/' + repo + '/commits/' + commit_sha
+                    TARGET = self.API_REPO_root + '/' + repo_name + '/commits/' + commit_sha
                     r = try_request(TARGET,headers=self.headers)
                     if r.status_code != 200:
                         continue
@@ -284,7 +306,7 @@ class PyGithub:
                             continue
                         # print(path2file)
                         patch = item['patch'] if 'patch' in item else ''
-                        commit_history4file_list = self.get_commit_history4file(repo, path2file)
+                        commit_history4file_list = self.get_commit_history4file(repo_name, path2file)
                         prev_file_idx = 0
                         if len(commit_history4file_list) == 0:
                             continue
@@ -301,30 +323,61 @@ class PyGithub:
                         # prev_code = self.get_code_file(repo, prev_commit_sha, path2file)
                         # curr_code = self.get_code_file(repo, curr_commit_sha, path2file)
                         
-                        prev_code = self.get_code_link(repo, prev_commit_sha, path2file)
-                        curr_code = self.get_code_link(repo, curr_commit_sha, path2file)
-                        if prev_code != '' and curr_code != '' and patch != '' and msg != '':
+                        prev_code_link = self.get_code_link(repo_name, prev_commit_sha, path2file)
+                        curr_code_link = self.get_code_link(repo_name, curr_commit_sha, path2file)
+                        if prev_code_link != '' and curr_code_link != '' and patch != '' and msg != '':
                             # self.code_database.append(
                             #     CodeData(prev_code, path2file, prev_commit_sha, patch, msg),
                             #     CodeData(curr_code, path2file, curr_commit_sha, patch, msg)
                             #     )
-                            input = CodeData(prev_code, path2file, prev_commit_sha)
-                            golden = CodeData(curr_code, path2file, curr_commit_sha)
-                            self.code_database.append_review_data(
-                                ReviewData(input, golden, patch, msg)
-                                )                            
-                        
+                            # input = CodeData(prev_code, path2file, prev_commit_sha)
+                            # golden = CodeData(curr_code, path2file, curr_commit_sha)
+                            # self.code_database.append_review_data(
+                            #     ReviewData(input, golden, patch, msg)
+                            #     )     
+                            commit_data = CommitData(
+                                hash=commit_sha, 
+                                old_file=prev_code_link,
+                                new_file=curr_code_link,
+                                msg=msg,
+                                patch=patch
+                            )
+                            commit_data_list.append(commit_data)                   
                 idx += 1
 
             if start == True:
                 print(f'END {repo}\n')
             count += rjson['total_count']
             page_idx += 1
+        
+        return commit_data_list[:]
 
 pygithub = PyGithub()
 repo_list = pygithub.search_repo()
-for repo in repo_list:
-    for keyword in perf_keywords:
-        pygithub.search_commits(repo, keyword)
+outfile = 'output.jsonl'
 
-pygithub.code_database.download_review_data()
+if os.path.isfile(outfile):
+    data = [json.loads(line) for line in open(outfile)]
+    except_repo_list = list(map(lambda d:d['repo_name'], data))
+else:
+    data = []
+    except_repo_list = []
+    
+for repo in repo_list:
+    repo_name = repo.repo_name
+    if repo_name in except_repo_list: continue
+    try:
+        for keyword in perf_keywords:
+            keyword_data = KeywordData(keyword)
+            commit_data_list = pygithub.search_commits(repo_name, keyword_data.keyword)
+            if len(commit_data_list) > 0:
+                keyword_data.push_back(commit_data_list=commit_data_list)
+                repo.push_back(keyword_data=keyword_data)
+    except:
+        assert False, 'ERROR!!!!!!!'
+    if len(repo.keyword_data_list) > 0:
+        repo.write_json(outfile)
+        pygithub.json_data.push_back(repo)
+        data.append(repo.toJson())
+
+# pygithub.code_database.download_review_data()
