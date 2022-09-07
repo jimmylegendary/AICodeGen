@@ -14,8 +14,6 @@ import json
 load_dotenv()
 
 
-API_count = 0
-search_count = 0
 API_KEY_LIST = json.loads(os.environ.get('GITHUB_PATS'))
 API_KEY_INDEX = 0
 API_KEY = API_KEY_LIST[API_KEY_INDEX]
@@ -29,7 +27,7 @@ def get_next_api_key():
     API_KEY_INDEX = (API_KEY_INDEX + 1) % len(API_KEY_LIST)
     API_KEY = API_KEY_LIST[API_KEY_INDEX]
 
-def get_ramaining_api_call(type):
+def get_api_call(type, attr):
     cmd = ['curl','-H', f'Authorization: token {API_KEY}', 'https://api.github.com/rate_limit']
     r = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
     output, error = r.communicate()
@@ -37,14 +35,16 @@ def get_ramaining_api_call(type):
     r._content = output
     r.status_code = 200
     if type == 'rate':
-        remaining_call = r.json()['rate']['remaining']
+        api_attr = r.json()['rate'][attr]
     else:
-        remaining_call = r.json()['resources'][type]['remaining']
+        api_attr = r.json()['resources'][type][attr]
     
-    return remaining_call
+    return api_attr
 
-limit = get_ramaining_api_call('rate')
-search_limit = get_ramaining_api_call('search')
+API_count = get_api_call(type='rate', attr='used')
+search_count = get_api_call(type='search', attr='used')
+limit = get_api_call(type='rate', attr='limit')
+search_limit = get_api_call(type='search', attr='limit')
 def try_curl(TARGET):
     cmd = ['curl','-s', f'https://{API_KEY}@{TARGET[8:]}']
     # print(cmd)
@@ -62,48 +62,42 @@ def try_curl(TARGET):
 def wait_github_api_limit(type):
     global API_count, limit, search_count, search_limit
     print(f'API_count : {API_count}, limit : {limit}')
-    # if API_count < limit:
-    #     assert False, f'API_count : {API_count} is under limit : {limit}'
-        
-    cmd = ['curl','-H', f'Authorization: token {API_KEY}', 'https://api.github.com/rate_limit']
-    # print(' '.join(cmd))
-    r = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE)
-    output, error = r.communicate()
-    r = requests.Response()
-    r._content = output
-    r.status_code = 200
+    print(f'search_count : {search_count}, search_limit : {search_limit}')
     
     for _ in range(len(API_KEY_LIST)):
         get_next_api_key()
-        if get_ramaining_api_call() != 0:
-            return            
+        remaining_call = int(get_api_call(type=type, attr='remaining'))
+        print(f'API_KEY_INDEX {API_KEY_INDEX} remaining_call {remaining_call}')
+        if remaining_call != 0:
+            API_count = get_api_call(type='rate', attr='used')
+            search_count = get_api_call(type='search', attr='used')
+            return
     
-    if type == 'rate':
-        reset_timestamp = r.json()['rate']['reset']
-    else:
-        reset_timestamp = r.json()['resources'][type]['reset']
+    reset_timestamp = get_api_call(type=type, attr='reset')
     
-    delay = max(reset_timestamp - time.time(), 0)
+    delay = max(reset_timestamp - time.time(), 0) + 1
     print(f'wait {delay} seconds...')
-    time.sleep(delay+1)
+    time.sleep(delay)
     if type == 'rate':
-        limit = get_ramaining_api_call('rate')
+        limit = get_api_call(type=type, attr='limit')
         API_count = 0
     elif type == 'search':
-        search_limit = get_ramaining_api_call('search')
+        search_limit = get_api_call(type=type, attr='limit')
         search_count = 0
 
 def try_request(TARGET, headers):
     global API_count, limit
     global search_count
 
+    type = 'rate'
     if 'search' in TARGET:
+        type = 'search'
         search_count += 1
 
-    if search_count >= search_limit:
+    if search_count >= search_limit - 2:
         wait_github_api_limit('search')
         
-    if API_count >= limit:
+    if API_count >= limit - 2:
         wait_github_api_limit('rate')
     
     tried = 0
@@ -127,7 +121,7 @@ def try_request(TARGET, headers):
                 if 'message' in json_data and 'API rate limit exceeded' in json_data['message']:
                     print(json_data['message'])
                     tried += 1
-                    wait_github_api_limit()
+                    wait_github_api_limit(type)
             tried += 1
         except:
             # print(get_ramaining_api_call())
@@ -364,7 +358,10 @@ class PyGithub:
                             # golden = CodeData(curr_code, path2file, curr_commit_sha)
                             # self.code_database.append_review_data(
                             #     ReviewData(input, golden, patch, msg)
-                            #     )     
+                            #     ) 
+                            global commit_data_size
+                            commit_data_size += 1
+                            print('commit_data_size',commit_data_size)
                             commit_data = CommitData(
                                 hash=commit_sha, 
                                 old_file=prev_code_link,
@@ -376,7 +373,7 @@ class PyGithub:
                 idx += 1
 
             if start == True:
-                print(f'END {repo}\n')
+                print(f'END {repo.repo_name}\n')
             count += rjson['total_count']
             page_idx += 1
         
@@ -398,17 +395,27 @@ else:
         f.close()
         
 outfile = 'output.jsonl'
-    
+commit_data_size = 0
+repo_data_size = 0
+repo_checked = 0
 if os.path.isfile(outfile):
-    data = [json.loads(line) for line in open(outfile)]
-    except_repo_list = list(map(lambda d:d['repo_name'], data))
+    data_list = [json.loads(line) for line in open(outfile)]
+    except_repo_list = list(map(lambda d:d['repo_name'], data_list))
+    for data in data_list:
+        repo_data_size += 1
+        for keyword_data in data['keyword_data_list']:
+            commit_data_size += len(keyword_data['commit_data_list'])
+                    
 else:
-    data = []
+    data_list = []
     except_repo_list = []
-    
+
+
 for repo in repo_list:
+    repo_checked += 1
     repo_name = repo.repo_name
-    if repo_name in except_repo_list: continue
+    if repo_name in except_repo_list:
+        continue
     try:
         for keyword in perf_keywords:
             keyword_data = KeywordData(keyword)
@@ -416,11 +423,15 @@ for repo in repo_list:
             if len(commit_data_list) > 0:
                 keyword_data.push_back(commit_data_list=commit_data_list)
                 repo.push_back(keyword_data=keyword_data)
+                commit_data_size += len(commit_data_list)
     except:
         assert False, 'ERROR!!!!!!!'
     if len(repo.keyword_data_list) > 0:
         repo.write_json(outfile)
         pygithub.json_data.push_back(repo)
-        data.append(repo.toJson())
+        repo_data_size += 1
+        data_list.append(repo.toJson())
+    print('repo_checked', repo_checked, 'repo_data_size', repo_data_size, 'commit_data_size', commit_data_size)
 
 # pygithub.code_database.download_review_data()
+
