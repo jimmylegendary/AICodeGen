@@ -9,17 +9,25 @@ import subprocess
 from util import *
 
 import urllib.request
+import json
 
 load_dotenv()
 
 
 API_count = 0
 search_count = 0
-API_KEY = os.environ.get('GITHUB_PAT')
+API_KEY_LIST = json.loads(os.environ.get('GITHUB_PATS'))
+API_KEY_INDEX = 0
+API_KEY = API_KEY_LIST[API_KEY_INDEX]
 
 perf_keywords = [
             'perf'
         ]
+
+def get_next_api_key():
+    global API_KEY_INDEX, API_KEY
+    API_KEY_INDEX = (API_KEY_INDEX + 1) % len(API_KEY_LIST)
+    API_KEY = API_KEY_LIST[API_KEY_INDEX]
 
 def get_ramaining_api_call(type):
     cmd = ['curl','-H', f'Authorization: token {API_KEY}', 'https://api.github.com/rate_limit']
@@ -64,7 +72,11 @@ def wait_github_api_limit(type):
     r = requests.Response()
     r._content = output
     r.status_code = 200
-    print(r.json())
+    
+    for _ in range(len(API_KEY_LIST)):
+        get_next_api_key()
+        if get_ramaining_api_call() != 0:
+            return            
     
     if type == 'rate':
         reset_timestamp = r.json()['rate']['reset']
