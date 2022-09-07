@@ -166,7 +166,7 @@ class PyGithub:
         self.API_REPO_root = 'https://api.github.com/repos'
         # root/{repo}/{sha}/{path2file}
         self.API_CODE_root = 'https://raw.githubusercontent.com'
-        self.API_KEY = os.environ.get('GITHUB_PAT')
+        self.API_KEY = API_KEY
         self.headers = {
             'Accept' : 'application/vnd.github+json',
             'Authorization': f'token {self.API_KEY}'
@@ -180,6 +180,12 @@ class PyGithub:
                 SegQuery(1000,10000,1000),
                 SegQuery(10000,10001,-1),
             ]
+        }
+    
+    def get_api_headers(self):
+        return {
+            'Accept' : 'application/vnd.github+json',
+            'Authorization': f'token {API_KEY}'
         }
 
     def search_repo(self):
@@ -210,7 +216,7 @@ class PyGithub:
                 TARGET=self.API_root+'/'+SEARCH_REPOSITORY+'?'+ query
                 max_page = 10
                 while(page_idx <= max_page):
-                    r = try_request(f'{TARGET}{page_idx}',headers=self.headers)
+                    r = try_request(f'{TARGET}{page_idx}',headers=self.get_api_headers())
                     json_data = r.json()
                     if page_idx == 1:
                         max_page = int(json_data['total_count']) if 'total_count' in json_data else 0
@@ -239,7 +245,7 @@ class PyGithub:
     
     def get_commit_history4file(self, repo, path2file):
         TARGET= self.API_REPO_root + '/'+ repo+'/commits?path='+path2file
-        r = try_request(TARGET,headers=self.headers)
+        r = try_request(TARGET,headers=self.get_api_headers())
         
         if len(r.json()) == 0:
             print('commit_history4file_list size is 0 for ', TARGET)
@@ -248,7 +254,7 @@ class PyGithub:
     
     def get_code_file(self, repo, sha, path2file):
         TARGET=self.API_CODE_root + '/' + repo + '/' + sha + '/' + path2file
-        r = try_request(TARGET,headers=self.headers)
+        r = try_request(TARGET,headers=self.get_api_headers())
         
         return r.content
     
@@ -276,7 +282,7 @@ class PyGithub:
         page_idx = 1
         max_commit = 100
         while(count < max_commit):
-            r = try_request(f'{TARGET}{page_idx}',headers=self.headers)
+            r = try_request(f'{TARGET}{page_idx}',headers=self.get_api_headers())
             if r == None:
                 break
             if (r.status_code != 200) or ('json' not in r.headers.get('content-type')) :
@@ -314,7 +320,7 @@ class PyGithub:
                 if len(msg) < 500:
                     # print(f'commit{idx}', msg)
                     TARGET = self.API_REPO_root + '/' + repo_name + '/commits/' + commit_sha
-                    r = try_request(TARGET,headers=self.headers)
+                    r = try_request(TARGET,headers=self.get_api_headers())
                     if r.status_code != 200:
                         continue
                     for item in r.json()['files']:
