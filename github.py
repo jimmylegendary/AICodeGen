@@ -19,7 +19,9 @@ API_KEY_INDEX = 0
 API_KEY = API_KEY_LIST[API_KEY_INDEX]
 
 perf_keywords = [
-            'perf'
+            'perf',
+            'optimization',
+            'time complexity',
         ]
 
 def get_next_api_key():
