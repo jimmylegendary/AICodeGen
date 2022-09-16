@@ -407,11 +407,20 @@ if os.path.isfile(outfile):
         repo_data_size += 1
         for keyword_data in data['keyword_data_list']:
             commit_data_size += len(keyword_data['commit_data_list'])
-                    
 else:
     data_list = []
     except_repo_list = []
 
+skip_list = {}
+for keyword in perf_keywords:
+    try:
+        with open(f'{keyword}.skip','r') as f:
+            skip_repo_list = []
+            for line in f.readlines():
+                skip_repo_list.append(line.strip('\n'))
+            skip_list[keyword] = skip_repo_list
+    except:
+        continue
 
 for repo in repo_list:
     repo_checked += 1
@@ -420,12 +429,16 @@ for repo in repo_list:
         continue
     try:
         for keyword in perf_keywords:
+            if keyword in skip_list and repo_name in skip_list[keyword]: continue
             keyword_data = KeywordData(keyword)
             commit_data_list = pygithub.search_commits(repo_name, keyword_data.keyword)
             if len(commit_data_list) > 0:
                 keyword_data.push_back(commit_data_list=commit_data_list)
                 repo.push_back(keyword_data=keyword_data)
-                commit_data_size += len(commit_data_list)
+            else:
+                with open(f'{keyword}.skip','a') as f:
+                    f.write(repo_name+'\n')
+                    f.close()
     except:
         assert False, 'ERROR!!!!!!!'
     if len(repo.keyword_data_list) > 0:

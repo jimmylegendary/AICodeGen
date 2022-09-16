@@ -29,6 +29,13 @@ class CodeReviewData:
 
 data_manager = CodeReviewDataManager(path='./')
 
+perf_keywords = [
+            'perf',
+            'optimize',
+            'optimization',
+            'time complexity'
+        ]
+
 def get_patch_dict(patch, msg):
     count = 0
     lines = [line for line in patch.split('\n')]
@@ -51,6 +58,7 @@ def get_patch_dict(patch, msg):
                 else:
                     old_patch_str += lines[idx]
                     new_patch_str += lines[idx]
+        
             data_manager.data_list.append(CodeReviewData(
                 old=old_patch_str, 
                 new=new_patch_str,
@@ -73,6 +81,13 @@ for data in json_data:
         for commit_data in keyword_data.commit_data_list:
             patch = commit_data.patch
             msg = commit_data.msg
+            if 'optimize' in msg or 'optimization' in msg:
+                msg='optimization'
+            elif 'perf' in msg:
+                msg='performance'
+            elif 'time' in msg and 'complexity' in msg:
+                msg='time complexity'
+
             get_patch_dict(patch, msg)
 
 # for i, data in enumerate(data_manager.data_list):
